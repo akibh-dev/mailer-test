@@ -1,0 +1,18 @@
+{
+  "name": "mailer-test",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-01",
+  // Deployed with a public workers.dev URL so you can open the test page.
+  "workers_dev": true,
+  // The mailer worker must be deployed first, or this deploy fails
+  // binding validation.
+  "services": [
+    {
+      "binding": "MAILER",
+      "service": "mailer"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}
