@@ -1,7 +1,7 @@
-// mailer-test — single-page smoke-test consumer for the `mailer` service
+// mailer-test — single-page smoke-test consumer for the `mailerv2` service
 // worker. Deployed as a separate worker with a service binding:
 //
-//   "services": [{ "binding": "MAILER", "service": "mailer" }]
+//   "services": [{ "binding": "MAILER", "service": "mailerv2" }]
 //
 // The binding is Cloudflare-internal: no public mailer URL, no auth.
 //

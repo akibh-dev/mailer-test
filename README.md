@@ -13,7 +13,7 @@ Browser → mailer-test worker → MAILER binding (internal) → mailer → prov
 
 ## Deploy order (important)
 
-The binding points at the worker named `mailer`; it must exist first.
+The binding points at the worker named `mailerv2`; it must exist first.
 
 1. **Deploy the mailer** (see `mailerv2/README.md`) — dashboard
    (Workers Builds, repo root `/` — the worker is the whole `mailerv2`
@@ -40,6 +40,6 @@ On failure: the mailer's structured error (`quota_exhausted`,
 
 ## Local notes
 
-`npm run dev` starts only this worker; the mailer service binding needs a
+`npm run dev` starts only this worker; the mailerv2 service binding needs a
 running mailer (`wrangler dev` with both configs, or just deployed state)
 to answer /send. `npm run check` runs typecheck + bundle.
