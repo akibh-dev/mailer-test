@@ -119,8 +119,11 @@ const page = `<!doctype html>
 <body>
 <main>
   <h1>Mailer test</h1>
-  <p class="sub">Calls the <code>mailer</code> worker over its internal service binding — mailgrid routes across your configured providers.</p>
+  <p class="sub">Calls the <code>mailerv2</code> worker over its internal service binding — mailgrid routes across your configured providers.</p>
   <form id="f">
+    <label>From — sender address, e.g. noreply@yourdomain.com
+      <input name="from" type="email" placeholder="noreply@yourdomain.com">
+    </label>
     <label>To
       <input name="to" type="email" placeholder="you@example.com" required>
     </label>
@@ -146,14 +149,17 @@ const page = `<!doctype html>
     out.textContent = "Sending...";
     try {
       const d = new FormData(f);
+      const payload: Record<string, unknown> = {
+        to: d.get("to"),
+        subject: d.get("subject"),
+        text: d.get("text"),
+      };
+      const from = d.get("from");
+      if (from) payload.from = from;
       const res = await fetch("/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          to: d.get("to"),
-          subject: d.get("subject"),
-          text: d.get("text"),
-        }),
+        body: JSON.stringify(payload),
       });
       const body = await res.json();
       out.className = res.ok ? "ok" : "err";
@@ -190,7 +196,7 @@ export default {
     }
 
     if (request.method === "POST" && url.pathname === "/send") {
-      let form: { to?: unknown; subject?: unknown; text?: unknown };
+      let form: { to?: unknown; from?: unknown; subject?: unknown; text?: unknown };
       try {
         form = (await request.json()) as typeof form;
       } catch {
@@ -199,6 +205,7 @@ export default {
       const to = typeof form.to === "string" ? form.to.trim() : "";
       const subject = typeof form.subject === "string" ? form.subject.trim() : "";
       const text = typeof form.text === "string" ? form.text.trim() : "";
+      const from = typeof form.from === "string" ? form.from.trim() : "";
       if (!to || !subject || !text) {
         return Response.json(
           { error: "missing_fields", message: "to, subject and text are required." },
@@ -206,7 +213,10 @@ export default {
         );
       }
       try {
-        const result = await sendMail(env.MAILER, { to, subject, text });
+        // `from` is optional here: if omitted, the mailer falls back to its
+        // EMAIL_DEFAULT_FROM secret (or returns 400 invalid_message if that
+        // secret isn't set either).
+        const result = await sendMail(env.MAILER, from ? { from, to, subject, text } : { to, subject, text });
         return Response.json(result);
       } catch (error) {
         if (error instanceof MailerSendError) {

@@ -7,12 +7,17 @@
   "workers_dev": true,
   // The mailerv2 worker must be deployed first, or this deploy fails
   // binding validation.
-  "services": [
-    {
-      "binding": "MAILER",
-      "service": "mailerv2"
-    }
-  ],
+  "unsafe": {
+    "bindings": [
+      {
+        "name": "MAILER",
+        "type": "service",
+        "service": "mailerv2",
+        "environment": "production",
+        "entrypoint": "default"
+      }
+    ]
+  },
   "observability": {
     "enabled": true
   }
