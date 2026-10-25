@@ -5,8 +5,7 @@
   // Public workers.dev URL so you can open the test page in a browser.
   // (Only this test page is public — the mailer itself is internal-only.)
   "workers_dev": true,
-  // The mailerv2 worker must be deployed first, or this deploy fails
-  // binding validation.
+  // The mailerv2 worker must be deployed first, or this deploy fails binding validation.
   "unsafe": {
     "bindings": [
       {
