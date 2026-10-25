@@ -15,8 +15,9 @@ Browser → mailer-test worker → MAILER binding (internal) → mailer → prov
 
 The binding points at the worker named `mailer`; it must exist first.
 
-1. **Deploy the mailer** (see `mailerv2/mailer/README.md`) — dashboard
-   (Workers Builds, root dir `mailer`) or `cd mailer && npx wrangler deploy`.
+1. **Deploy the mailer** (see `mailerv2/README.md`) — dashboard
+   (Workers Builds, repo root `/` — the worker is the whole `mailerv2`
+   repo) or `cd mailerv2 && npx wrangler deploy`.
    Add at least one provider API key as a Secret on the mailer worker
    (dashboard → **mailer → Settings → Variables and Secrets**, or
    `npx wrangler secret put RESEND_API_KEY`).
