@@ -1,20 +1,17 @@
-// mailer-test — single-page smoke-test client for the `mailer` email API.
-// Placed at a separate worker; talks plain HTTP, no service bindings:
+// mailer-test — single-page smoke-test consumer for the `mailer` service
+// worker. Deployed as a separate worker with a service binding:
 //
-//   const res = await fetch(env.MAILER_URL + "/send", {
-//     headers: { Authorization: `Bearer ${env.MAILER_API_KEY}` },
-//   })
+//   "services": [{ "binding": "MAILER", "service": "mailer" }]
 //
-// Env (set per deployment):
-//   MAILER_URL      — the mailer worker's public URL (workers.dev link)
-//   MAILER_API_KEY  — same value as the mailer worker's MAILER_API_KEY secret
+// The binding is Cloudflare-internal: no public mailer URL, no auth.
 //
 // GET  /      → test page (recipient/subject/body form)
-// POST /send  → forwards the form payload to mailer, returns its JSON result.
+// POST /send  → forwards the form payload through the MAILER binding,
+//               returns the mailgrid SendResult as JSON.
 
-interface MailerConfig {
-  url: string;
-  apiKey: string;
+/** Minimal structural type for the service binding. */
+export interface MailerBinding {
+  fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
 }
 
 export interface MailerErrorBody {
@@ -62,16 +59,11 @@ interface SendResult {
   durationMs: number;
 }
 
-const jsonError = (body: MailerErrorBody, status: number) =>
-  Response.json(body, { status });
-
-async function sendMail(mailer: MailerConfig, input: SendEmailInput): Promise<SendResult> {
-  const res = await fetch(`${mailer.url.replace(/\/+$/, "")}/send`, {
+async function sendMail(mailer: MailerBinding, input: SendEmailInput): Promise<SendResult> {
+  // URL is a placeholder: service bindings route on the binding, not the host.
+  const res = await mailer.fetch("https://mailer.internal/send", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${mailer.apiKey}`,
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
   const body = (await res.json()) as unknown;
@@ -127,7 +119,7 @@ const page = `<!doctype html>
 <body>
 <main>
   <h1>Mailer test</h1>
-  <p class="sub">Plain-HTTP client for the <code>mailer</code> JSON API — mailgrid routes across your configured providers.</p>
+  <p class="sub">Calls the <code>mailer</code> worker over its internal service binding — mailgrid routes across your configured providers.</p>
   <form id="f">
     <label>To
       <input name="to" type="email" placeholder="you@example.com" required>
@@ -186,8 +178,7 @@ const html = (body: string, status = 200) =>
   new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8" } });
 
 export interface Env {
-  MAILER_URL: string;
-  MAILER_API_KEY: string;
+  MAILER: MailerBinding;
 }
 
 export default {
@@ -199,48 +190,35 @@ export default {
     }
 
     if (request.method === "POST" && url.pathname === "/send") {
-      if (!env.MAILER_URL || !env.MAILER_API_KEY) {
-        return jsonError(
-          {
-            error: "client_not_configured",
-            message:
-              "Set MAILER_URL (mailer worker URL) and MAILER_API_KEY (same key as the mailer) on this worker first: dashboard → Settings → Variables and Secrets.",
-          },
-          503,
-        );
-      }
       let form: { to?: unknown; subject?: unknown; text?: unknown };
       try {
         form = (await request.json()) as typeof form;
       } catch {
-        return jsonError({ error: "invalid_json" }, 400);
+        return Response.json({ error: "invalid_json" }, { status: 400 });
       }
       const to = typeof form.to === "string" ? form.to.trim() : "";
       const subject = typeof form.subject === "string" ? form.subject.trim() : "";
       const text = typeof form.text === "string" ? form.text.trim() : "";
       if (!to || !subject || !text) {
-        return jsonError(
+        return Response.json(
           { error: "missing_fields", message: "to, subject and text are required." },
-          400,
+          { status: 400 },
         );
       }
       try {
-        const result = await sendMail(
-          { url: env.MAILER_URL, apiKey: env.MAILER_API_KEY },
-          { to, subject, text },
-        );
+        const result = await sendMail(env.MAILER, { to, subject, text });
         return Response.json(result);
       } catch (error) {
         if (error instanceof MailerSendError) {
-          return jsonError(error.body, error.status);
+          return Response.json(error.body, { status: error.status });
         }
-        return jsonError(
+        return Response.json(
           { error: "internal_error", message: String(error) },
-          500,
+          { status: 500 },
         );
       }
     }
 
-    return jsonError({ error: "not_found" }, 404);
+    return Response.json({ error: "not_found" }, { status: 404 });
   },
 } satisfies ExportedHandler<Env>;

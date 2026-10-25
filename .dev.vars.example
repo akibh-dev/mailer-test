@@ -1,5 +1,0 @@
-# Copy to .dev.vars (git-ignored) for local `npm run dev`.
-# MAILER_URL should point at a locally running mailer (`cd ../mailerv2/mailer && npm run dev`)
-# or the deployed mailer URL.
-MAILER_URL=http://127.0.0.1:8787
-MAILER_API_KEY=dev-key-change-me
