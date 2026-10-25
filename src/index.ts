@@ -1,20 +1,23 @@
-// mailer-test — single-page smoke-test consumer for the `mailer` service
-// worker. Deployed as a separate worker with a service binding:
+// mailer-test — single-page smoke-test client for the `mailer` email API.
+// Placed at a separate worker; talks plain HTTP, no service bindings:
 //
-//   "services": [{ "binding": "MAILER", "service": "mailer" }]
+//   const res = await fetch(env.MAILER_URL + "/send", {
+//     headers: { Authorization: `Bearer ${env.MAILER_API_KEY}` },
+//   })
+//
+// Env (set per deployment):
+//   MAILER_URL      — the mailer worker's public URL (workers.dev link)
+//   MAILER_API_KEY  — same value as the mailer worker's MAILER_API_KEY secret
 //
 // GET  /      → test page (recipient/subject/body form)
-// POST /send  → forwards the form payload through the MAILER binding,
-//               returns the mailgrid SendResult as JSON.
-//
-// Typed helper for the MAILER service binding. Same shape as the
-// mailer-client package; inlined so this repo has zero dependencies.
+// POST /send  → forwards the form payload to mailer, returns its JSON result.
 
-export interface MailerService {
-  fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
+interface MailerConfig {
+  url: string;
+  apiKey: string;
 }
 
-export interface MailerError {
+export interface MailerErrorBody {
   error: string;
   message?: string;
   summary?: string;
@@ -24,9 +27,9 @@ export interface MailerError {
 export class MailerSendError extends Error {
   readonly status: number;
   readonly code: string;
-  readonly body: MailerError;
+  readonly body: MailerErrorBody;
 
-  constructor(status: number, body: MailerError) {
+  constructor(status: number, body: MailerErrorBody) {
     super(body.message ?? body.summary ?? body.error);
     this.name = "MailerSendError";
     this.status = status;
@@ -36,12 +39,12 @@ export class MailerSendError extends Error {
 }
 
 interface SendEmailInput {
-  from?: string;
   to: string | string[];
   subject: string;
-  html?: string;
   text?: string;
+  html?: string;
   idempotencyKey?: string;
+  [key: string]: unknown;
 }
 
 interface SendResult {
@@ -52,7 +55,6 @@ interface SendResult {
     provider: string;
     ok: boolean;
     status?: number;
-    productName?: string;
     error?: string;
     durationMs: number;
   }[];
@@ -60,16 +62,21 @@ interface SendResult {
   durationMs: number;
 }
 
-async function sendMail(mailer: MailerService, input: SendEmailInput): Promise<SendResult> {
-  // URL is a placeholder: service bindings route on the binding, not the host.
-  const response = await mailer.fetch("https://mailer.internal/send", {
+const jsonError = (body: MailerErrorBody, status: number) =>
+  Response.json(body, { status });
+
+async function sendMail(mailer: MailerConfig, input: SendEmailInput): Promise<SendResult> {
+  const res = await fetch(`${mailer.url.replace(/\/+$/, "")}/send`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${mailer.apiKey}`,
+    },
     body: JSON.stringify(input),
   });
-  const body = (await response.json()) as unknown;
-  if (!response.ok) {
-    throw new MailerSendError(response.status, body as MailerError);
+  const body = (await res.json()) as unknown;
+  if (!res.ok) {
+    throw new MailerSendError(res.status, body as MailerErrorBody);
   }
   return body as SendResult;
 }
@@ -120,7 +127,7 @@ const page = `<!doctype html>
 <body>
 <main>
   <h1>Mailer test</h1>
-  <p class="sub">Sends through the <code>MAILER</code> service binding — mailgrid routes across your configured providers.</p>
+  <p class="sub">Plain-HTTP client for the <code>mailer</code> JSON API — mailgrid routes across your configured providers.</p>
   <form id="f">
     <label>To
       <input name="to" type="email" placeholder="you@example.com" required>
@@ -179,7 +186,8 @@ const html = (body: string, status = 200) =>
   new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8" } });
 
 export interface Env {
-  MAILER: MailerService;
+  MAILER_URL: string;
+  MAILER_API_KEY: string;
 }
 
 export default {
@@ -191,35 +199,48 @@ export default {
     }
 
     if (request.method === "POST" && url.pathname === "/send") {
+      if (!env.MAILER_URL || !env.MAILER_API_KEY) {
+        return jsonError(
+          {
+            error: "client_not_configured",
+            message:
+              "Set MAILER_URL (mailer worker URL) and MAILER_API_KEY (same key as the mailer) on this worker first: dashboard → Settings → Variables and Secrets.",
+          },
+          503,
+        );
+      }
       let form: { to?: unknown; subject?: unknown; text?: unknown };
       try {
         form = (await request.json()) as typeof form;
       } catch {
-        return Response.json({ error: "invalid_json" }, { status: 400 });
+        return jsonError({ error: "invalid_json" }, 400);
       }
       const to = typeof form.to === "string" ? form.to.trim() : "";
       const subject = typeof form.subject === "string" ? form.subject.trim() : "";
       const text = typeof form.text === "string" ? form.text.trim() : "";
       if (!to || !subject || !text) {
-        return Response.json(
+        return jsonError(
           { error: "missing_fields", message: "to, subject and text are required." },
-          { status: 400 },
+          400,
         );
       }
       try {
-        const result = await sendMail(env.MAILER, { to, subject, text });
+        const result = await sendMail(
+          { url: env.MAILER_URL, apiKey: env.MAILER_API_KEY },
+          { to, subject, text },
+        );
         return Response.json(result);
       } catch (error) {
         if (error instanceof MailerSendError) {
-          return Response.json(error.body, { status: error.status });
+          return jsonError(error.body, error.status);
         }
-        return Response.json(
+        return jsonError(
           { error: "internal_error", message: String(error) },
-          { status: 500 },
+          500,
         );
       }
     }
 
-    return Response.json({ error: "not_found" }, { status: 404 });
+    return jsonError({ error: "not_found" }, 404);
   },
 } satisfies ExportedHandler<Env>;

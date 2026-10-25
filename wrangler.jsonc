@@ -2,16 +2,17 @@
   "name": "mailer-test",
   "main": "src/index.ts",
   "compatibility_date": "2025-09-01",
-  // Deployed with a public workers.dev URL so you can open the test page.
+  // Public workers.dev URL so you can open the test page.
   "workers_dev": true,
-  // The mailer worker must be deployed first, or this deploy fails
-  // binding validation.
-  "services": [
-    {
-      "binding": "MAILER",
-      "service": "mailer"
-    }
-  ],
+  "vars": {
+    // Plain HTTP, no bindings. Set the mailer worker's public URL here,
+    // e.g. https://mailer.your-subdomain.workers.dev
+    // (dashboard: Workers & Pages → mailer-test → Settings → Variables).
+    "MAILER_URL": ""
+  },
+  // MAILER_API_KEY is a Secret holding the same value as the mailer
+  // worker's MAILER_API_KEY. Set it in the dashboard (Variables and
+  // Secrets) or locally via .dev.vars — never commit it.
   "observability": {
     "enabled": true
   }
