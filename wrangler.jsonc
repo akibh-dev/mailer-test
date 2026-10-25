@@ -6,17 +6,13 @@
   // (Only this test page is public — the mailer itself is internal-only.)
   "workers_dev": true,
   // The mailerv2 worker must be deployed first, or this deploy fails binding validation.
-  "unsafe": {
-    "bindings": [
-      {
-        "name": "MAILER",
-        "type": "service",
-        "service": "mailerv2",
-        "environment": "production",
-        "entrypoint": "default"
-      }
-    ]
-  },
+  "services": [
+    {
+      "binding": "MAILER",
+      "service": "mailerv2",
+      "environment": "production"
+    }
+  ],
   "observability": {
     "enabled": true
   }

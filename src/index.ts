@@ -5,7 +5,9 @@
 //
 // The binding is Cloudflare-internal: no public mailer URL, no auth.
 //
-// GET  /      → test page (recipient/subject/body form)
+// GET  /      → test page (recipient/subject/body form). If query params
+//               from/to/subject/text are present, sends directly instead of
+//               rendering — handy for pasting a URL without using the form.
 // POST /send  → forwards the form payload through the MAILER binding,
 //               returns the mailgrid SendResult as JSON.
 
@@ -149,7 +151,7 @@ const page = `<!doctype html>
     out.textContent = "Sending...";
     try {
       const d = new FormData(f);
-      const payload: Record<string, unknown> = {
+      const payload = {
         to: d.get("to"),
         subject: d.get("subject"),
         text: d.get("text"),
@@ -191,44 +193,72 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
+    // GET / with at least a `to` param: send directly (no form) and return
+    // the mailgrid result as JSON in the browser.
+    if (
+      request.method === "GET" &&
+      url.pathname === "/" &&
+      url.searchParams.has("to")
+    ) {
+      return handleSendFields(env, Object.fromEntries(url.searchParams));
+    }
+
     if (request.method === "GET" && url.pathname === "/") {
       return html(page);
     }
 
     if (request.method === "POST" && url.pathname === "/send") {
-      let form: { to?: unknown; from?: unknown; subject?: unknown; text?: unknown };
+      let raw: unknown;
       try {
-        form = (await request.json()) as typeof form;
+        raw = await request.json();
       } catch {
         return Response.json({ error: "invalid_json" }, { status: 400 });
       }
-      const to = typeof form.to === "string" ? form.to.trim() : "";
-      const subject = typeof form.subject === "string" ? form.subject.trim() : "";
-      const text = typeof form.text === "string" ? form.text.trim() : "";
-      const from = typeof form.from === "string" ? form.from.trim() : "";
-      if (!to || !subject || !text) {
+      if (typeof raw !== "object" || raw === null) {
         return Response.json(
-          { error: "missing_fields", message: "to, subject and text are required." },
+          { error: "invalid_json", message: "Body must be a JSON object." },
           { status: 400 },
         );
       }
-      try {
-        // `from` is optional here: if omitted, the mailer falls back to its
-        // EMAIL_DEFAULT_FROM secret (or returns 400 invalid_message if that
-        // secret isn't set either).
-        const result = await sendMail(env.MAILER, from ? { from, to, subject, text } : { to, subject, text });
-        return Response.json(result);
-      } catch (error) {
-        if (error instanceof MailerSendError) {
-          return Response.json(error.body, { status: error.status });
-        }
-        return Response.json(
-          { error: "internal_error", message: String(error) },
-          { status: 500 },
-        );
-      }
+      return handleSendFields(env, raw as Record<string, unknown>);
     }
 
     return Response.json({ error: "not_found" }, { status: 404 });
   },
 } satisfies ExportedHandler<Env>;
+
+/** Shared by POST /send and GET /?to=... — validates, sends, maps errors. */
+async function handleSendFields(
+  env: Env,
+  fields: Record<string, unknown>,
+): Promise<Response> {
+  const to = typeof fields.to === "string" ? fields.to.trim() : "";
+  const subject =
+    typeof fields.subject === "string" ? fields.subject.trim() : "";
+  const text = typeof fields.text === "string" ? fields.text.trim() : "";
+  const from = typeof fields.from === "string" ? fields.from.trim() : "";
+  if (!to || !subject || !text) {
+    return Response.json(
+      { error: "missing_fields", message: "to, subject and text are required." },
+      { status: 400 },
+    );
+  }
+  try {
+    // `from` is optional here: if omitted, the mailer falls back to its
+    // EMAIL_DEFAULT_FROM secret (or returns 400 invalid_message if that
+    // secret isn't set either).
+    const result = await sendMail(
+      env.MAILER,
+      from ? { from, to, subject, text } : { to, subject, text },
+    );
+    return Response.json(result);
+  } catch (error) {
+    if (error instanceof MailerSendError) {
+      return Response.json(error.body, { status: error.status });
+    }
+    return Response.json(
+      { error: "internal_error", message: String(error) },
+      { status: 500 },
+    );
+  }
+}
